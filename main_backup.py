@@ -52,9 +52,8 @@ os.makedirs("static/uploads", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# 환경 변수에서 API 키를 불러와 클라이언트 초기화 (오프라인 시 예외 방어)
-api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key) if api_key else None
+# 환경 변수에서 API 키를 불러와 클라이언트 초기화
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 def get_db():
     db = SessionLocal()
@@ -67,7 +66,6 @@ def get_db():
 def read_index(request: Request, db: Session = Depends(get_db)):
     projects = db.query(Project).all()
     return templates.TemplateResponse(request, "index.html", {"projects": projects})
-
 @app.post("/projects/create")
 def create_project(
     name: str = Form(...),
@@ -99,7 +97,7 @@ async def create_log(
     if not project:
         raise HTTPException(status_code=404, detail="공사를 찾을 수 없습니다.")
 
-    # 안전한 파일명 생성
+    # 안전한 파일명 생성 (인코딩 에러 방지)
     file_bytes = await file.read()
     ext = os.path.splitext(file.filename)[1]
     filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{ext}"
@@ -120,24 +118,22 @@ async def create_log(
         "- 현장 시공 상태 점검 결과 및 시공사(감리단)에 대한 지시사항 형태로 들어갈 문구를 1줄 작성해주세요."
     )
 
-    ai_result = ""
     try:
-        if not client:
-            raise Exception("API Key가 설정되지 않았습니다.")
-
+        # 제미나이 이미지 전송용 객체 생성
         image_part = types.Part.from_bytes(
             data=file_bytes,
             mime_type=file.content_type or "image/jpeg",
         )
+
         user_prompt = f"공사명: {project.name}\n작업키워드: {work_content}\n이 현장 사진을 분석해줘."
 
-        # 안정적인 최신 플래시 모델 사용 (gemini-3.5-flash)
+        # Gemini API 호출 (최신 gemini-2.5-flash 모델 및 AFC 경고 비활성화 적용)
         response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
+            model = "gemini-3.6-flash",
             contents=[image_part, user_prompt],
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                # 라이트 모델은 temperature 등 일부 설정이 무시될 수 있으므로 참고하세요
+                temperature=0.3,
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
                     disable=True
                 )
@@ -145,18 +141,9 @@ async def create_log(
         )
         ai_result = response.text
     except Exception as e:
-        print(f"AI 분석 실패 (오프라인 모드 전환): {str(e)}")
-        # 503 에러나 네트워크 끊김 발생 시 앱이 죽지 않고 오프라인 기본 템플릿으로 저장
-        ai_result = (
-            "### [🚨 위험요소 및 안전 체크포인트]\n"
-            "- (오프라인 모드) 서버 연결 지연 또는 503 에러로 AI 분석을 일시적으로 건너뛰었습니다.\n"
-            "- 현장 안전 수칙 준수 여부 및 가설구조물 이상 유무를 직접 육안으로 확인하시기 바랍니다.\n\n"
-            f"### [📝 금일 작업 내용 (일지용)]\n"
-            f"- {work_content} 관련 현장 시공 상태 확인 및 품질 관리 수행\n"
-            "- 특이사항 없음\n\n"
-            "### [📌 특기사항 및 지시사항 (일지용)]\n"
-            "- 시공사는 품질 및 안전 관리에 만전을 기할 것."
-        )
+        import traceback
+        traceback.print_exc()
+        ai_result = f"제미나이 AI 분석 중 오류 발생: {str(e)}"
 
     # DB에 누적 저장
     new_log = Log(
@@ -178,6 +165,8 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="해당 일지를 찾을 수 없습니다.")
     
     project_id = log.project_id
+
+    # 1. 서버에 저장된 실제 이미지 파일 삭제 (파일이 존재하는 경우)
     if log.image_path:
         file_system_path = log.image_path.lstrip("/") 
         if os.path.exists(file_system_path):
@@ -186,8 +175,10 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
             except Exception as e:
                 print(f"이미지 파일 삭제 실패: {e}")
 
+    # 2. 데이터베이스에서 로그 레코드 삭제
     db.delete(log)
     db.commit()
+
     return RedirectResponse(url=f"/projects/{project_id}", status_code=303)
 
 @app.post("/projects/{project_id}/delete")
@@ -196,6 +187,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="공사를 찾을 수 없습니다.")
     
+    # 해당 공사에 속한 모든 일지의 실제 이미지 파일 삭제
     for log in project.logs:
         if log.image_path:
             file_system_path = log.image_path.lstrip("/")
@@ -205,8 +197,10 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
                 except Exception as e:
                     print(f"이미지 파일 삭제 실패: {e}")
 
+    # 공사 삭제 (cascade 설정에 의해 연관된 Log 데이터도 DB에서 함께 삭제됨)
     db.delete(project)
     db.commit()
+
     return RedirectResponse(url="/", status_code=303)
 
 if __name__ == "__main__":
