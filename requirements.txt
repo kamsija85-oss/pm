@@ -3,3 +3,4 @@ uvicorn
 google-genai
 pydantic
 jinja2
+sqlalchemy
