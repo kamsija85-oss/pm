@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ project.name }} - 감독일지 이력</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .ai-result-box { background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; white-space: pre-line; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-5" style="max-width: 750px;">
+    <a href="/" class="btn btn-outline-secondary btn-sm mb-3">⬅️ 공사 목록으로 돌아가기</a>
+    
+    <div class="card p-4 mb-4 shadow-sm border-0 bg-white">
+        <h3 class="fw-bold text-primary">{{ project.name }}</h3>
+        <p class="text-muted m-0">📍 위치: {{ project.location }} | 시공사: {{ project.contractor }}</p>
+    </div>
+
+    <!-- 새 현장 사진 및 일지 등록 폼 -->
+    <div class="card p-4 mb-4 shadow-sm border-0 bg-white">
+        <h5 class="fw-bold mb-3 text-success">📸 오늘의 현장 점검 기록 추가</h5>
+        <form action="/projects/{{ project.id }}/logs" method="post" enctype="multipart/form-data" id="logForm">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">오늘 주요 작업 키워드</label>
+                <input type="text" class="form-control" name="work_content" placeholder="예: 우수관 매설 및 터파기 작업 진행" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">현장 사진 촬영/업로드</label>
+                <input class="form-control" type="file" name="file" accept="image/*" required>
+            </div>
+            <button type="submit" class="btn btn-success w-100 fw-bold py-2" id="submitBtn">
+                🚀 AI 위험요소 진단 및 일지 누적 저장
+            </button>
+        </form>
+    </div>
+
+    <!-- 누적된 이력 타임라인 -->
+    <h4 class="fw-bold mb-3">📑 이 공사의 감독일지 누적 이력 ({{ project.logs|length }}건)</h4>
+    
+    {% if not project.logs %}
+        <div class="alert alert-info">아직 기록된 현장 일지가 없습니다. 위에서 첫 점검을 시작해보세요!</div>
+    {% endif %}
+
+    {% for log in project.logs|reverse %}
+    <div class="card p-4 mb-3 shadow-sm border-0 bg-white">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+                <span class="badge bg-secondary me-2">작성일시: {{ log.date }}</span>
+                <span class="fw-bold text-dark">작업: {{ log.work_content }}</span>
+            </div>
+            <!-- 삭제 버튼 추가 -->
+            <form action="/logs/{{ log.id }}/delete" method="post" onsubmit="return confirm('정말 이 점검 기록을 삭제하시겠습니까?');" class="m-0">
+                <button type="submit" class="btn btn-outline-danger btn-sm">🗑️ 삭제</button>
+            </form>
+        </div>
+        <div class="row">
+            <div class="col-md-4 mb-3 mb-md-0">
+                <img src="{{ log.image_path }}" class="img-fluid rounded border" alt="현장사진">
+            </div>
+            <div class="col-md-8">
+                <div class="ai-result-box small">{{ log.ai_result }}</div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+    document.getElementById('logForm').addEventListener('submit', function() {
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.innerHTML = '🔄 AI가 현장을 분석하고 DB에 누적 저장 중입니다...';
+    });
+</script>
+</body>
+</html>

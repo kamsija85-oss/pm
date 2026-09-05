@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>지자체 토목직 스마트 감독일지</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-5" style="max-width: 700px;">
+    <h2 class="fw-bold text-primary mb-2">🏗️ 내 담당 공사 목록</h2>
+    <p class="text-muted mb-4">공사를 선택하여 현장 일지와 사진 이력을 누적 관리하세요.</p>
+
+    <!-- 새 공사 등록 폼 -->
+    <div class="card p-4 mb-4 shadow-sm border-0">
+        <h5 class="fw-bold mb-3">➕ 새 공사 등록하기</h5>
+        <form action="/projects/create" method="post">
+            <div class="mb-3">
+                <label class="form-label">공사명</label>
+                <input type="text" class="form-control" name="name" placeholder="예: OO동 소로 1류 도로개설공사" required>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">현장 위치</label>
+                    <input type="text" class="form-control" name="location" placeholder="예: OO동 일원">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label">시공사</label>
+                    <input type="text" class="form-control" name="contractor" placeholder="예: (주)OO건설">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary w-100 fw-bold">공사 등록</button>
+        </form>
+    </div>
+
+    <!-- 공사 카드 리스트 -->
+    <h5 class="fw-bold mb-3">📂 등록된 공사 목록</h5>
+    {% if not projects %}
+        <div class="alert alert-warning">등록된 공사가 없습니다. 위에서 먼저 공사를 등록해주세요.</div>
+    {% endif %}
+    <div class="list-group">
+        {% for p in projects %}
+            <div class="list-group-item p-3 mb-2 shadow-sm rounded border-0 d-flex justify-content-between align-items-center bg-white">
+                <a href="/projects/{{ p.id }}" class="text-decoration-none flex-grow-1">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h5 class="mb-1 fw-bold text-dark">{{ p.name }}</h5>
+                        <small class="text-muted me-3">상세보기 ➔</small>
+                    </div>
+                    <p class="mb-1 text-secondary small">📍 위치: {{ p.location }} | 시공사: {{ p.contractor }}</p>
+                </a>
+                <form action="/projects/{{ p.id }}/delete" method="post" onsubmit="return confirm('정말 이 공사와 관련된 모든 일지 및 사진이 삭제됩니다. 삭제하시겠습니까?');" class="ms-2 m-0">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">🗑️ 삭제</button>
+                </form>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+</body>
+</html>
