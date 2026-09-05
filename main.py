@@ -129,7 +129,7 @@ async def create_log(
 
         # Gemini API 호출 (최신 gemini-2.5-flash 모델 및 AFC 경고 비활성화 적용)
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model = "gemini-3.6-flash",
             contents=[image_part, user_prompt],
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
