@@ -65,7 +65,7 @@ def get_db():
 @app.get("/", response_class=HTMLResponse)
 def read_index(request: Request, db: Session = Depends(get_db)):
     projects = db.query(Project).all()
-    return templates.TemplateResponse("index.html", {"request": request, "projects": projects})
+    return templates.TemplateResponse(request, "index.html", {"projects": projects})
 
 @app.post("/projects/create")
 def create_project(
@@ -84,7 +84,7 @@ def read_project_detail(request: Request, project_id: int, db: Session = Depends
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="공사를 찾을 수 없습니다.")
-    return templates.TemplateResponse("detail.html", {"request": request, "project": project})
+    return templates.TemplateResponse(request, "detail.html", {"project": project})
 
 @app.post("/projects/{project_id}/logs", response_class=HTMLResponse)
 async def create_log(
@@ -128,9 +128,9 @@ async def create_log(
 
         user_prompt = f"공사명: {project.name}\n작업키워드: {work_content}\n이 현장 사진을 분석해줘."
 
-        # Gemini API 호출 (최신 gemini-3.6-flash 모델 및 AFC 경고 비활성화 적용)
+        # Gemini API 호출 (최신 gemini-2.5-flash 모델 및 AFC 경고 비활성화 적용)
         response = client.models.generate_content(
-            model='gemini-3.6-flash',
+            model='gemini-2.5-flash',
             contents=[image_part, user_prompt],
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
@@ -159,10 +159,6 @@ async def create_log(
 
     return RedirectResponse(url=f"/projects/{project_id}", status_code=303)
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-    
 @app.post("/logs/{log_id}/delete")
 def delete_log(log_id: int, db: Session = Depends(get_db)):
     log = db.query(Log).filter(Log.id == log_id).first()
@@ -173,8 +169,7 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
 
     # 1. 서버에 저장된 실제 이미지 파일 삭제 (파일이 존재하는 경우)
     if log.image_path:
-        # log.image_path는 "/static/uploads/파일명" 형태이므로 실제 로컬 경로로 변환
-        file_system_path = log.image_path.lstrip("/") # 앞의 '/' 제거
+        file_system_path = log.image_path.lstrip("/") 
         if os.path.exists(file_system_path):
             try:
                 os.remove(file_system_path)
@@ -208,3 +203,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     return RedirectResponse(url="/", status_code=303)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
