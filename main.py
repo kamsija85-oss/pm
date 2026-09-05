@@ -66,7 +66,6 @@ def get_db():
 def read_index(request: Request, db: Session = Depends(get_db)):
     projects = db.query(Project).all()
     return templates.TemplateResponse(request, "index.html", {"projects": projects})
-
 @app.post("/projects/create")
 def create_project(
     name: str = Form(...),
