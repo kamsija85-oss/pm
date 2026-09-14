@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <title>{{ project.name }} - 감독일지 이력</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .ai-result-box { background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; white-space: pre-line; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-5" style="max-width: 750px;">
+    <a href="/" class="btn btn-outline-secondary btn-sm mb-3">⬅️ 공사 목록으로 돌아가기</a>
+    
+    <div class="card p-4 mb-3 shadow-sm border-0 bg-white">
+        <h3 class="fw-bold text-primary">{{ project.name }}</h3>
+        <p class="text-muted m-0">📍 위치: {{ project.location }} | 시공사: {{ project.contractor }}</p>
+    </div>
+
+    <!-- 🌤️ 실시간 현장 기상 상태 및 주간 날씨 예보 위젯 -->
+    <div class="card p-2 mb-4 shadow-sm border-0 bg-white text-secondary" style="font-size: 0.85rem;">
+        <!-- 오늘 날씨 카드 영역 -->
+        <div class="mb-2">
+            <div class="fw-bold text-dark mb-1" style="font-size: 0.8rem;">🌤️ 오늘 날씨 및 기상 특보</div>
+            <div class="bg-light p-2 rounded border shadow-sm">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">
+                    <span class="fw-semibold text-dark">{{ weather_info.today.status if weather_info is mapping and weather_info.today else '정보 없음' }}</span>
+                    {% if weather_info is mapping and weather_info.today %}
+                    <div style="font-size: 0.85rem;">
+                        <span class="text-primary fw-bold">{{ weather_info.today.temp_min|int }}°</span><span class="text-muted"> / </span><span class="text-danger fw-bold">{{ weather_info.today.temp_max|int }}°</span>
+                        <span class="text-muted ms-1" style="font-size: 0.75rem;">(☔ {{ weather_info.today.rain_prob }}%)</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="text-muted border-top pt-1" style="font-size: 0.78rem;">
+                    <div>{{ weather_info.current_text if weather_info is mapping else '' }}</div>
+                    <div class="text-danger fw-semibold mt-1">{{ weather_info.alert_text if weather_info is mapping else '' }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 내일부터 5일간 주간 예보 카드 영역 (한 줄 정렬) -->
+        {% if weather_info is mapping and weather_info.forecast %}
+        <div>
+            <div class="fw-bold text-dark mb-1" style="font-size: 0.8rem;">📅 주간 날씨 예보 (내일부터 5일간)</div>
+            <div class="d-flex flex-nowrap gap-1 overflow-auto">
+                {% for f in weather_info.forecast %}
+                    <div class="bg-light p-1 rounded border shadow-sm text-center flex-fill" style="min-width: 65px;">
+                        <div class="text-muted fw-semibold" style="font-size: 0.7rem;">{{ f.date[5:] }}</div>
+                        <div class="my-1" style="font-size: 0.75rem;">{{ f.status.split(' ')[0] }}</div>
+                        <div style="font-size: 0.7rem;">
+                            <span class="text-primary fw-bold">{{ f.temp_min|int }}°</span><span class="text-muted">/</span><span class="text-danger fw-bold">{{ f.temp_max|int }}°</span>
+                        </div>
+                        <div class="text-muted" style="font-size: 0.65rem;">(☔{{ f.rain_prob }}%)</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 새 현장 사진 및 일지 등록 폼 -->
+    <div class="card p-4 mb-4 shadow-sm border-0 bg-white">
+        <h5 class="fw-bold mb-3 text-success">📸 오늘의 현장 점검 기록 추가</h5>
+        <form action="/projects/{{ project.id }}/logs" method="post" enctype="multipart/form-data" id="logForm">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">오늘 주요 작업 키워드</label>
+                <input type="text" class="form-control" name="work_content" placeholder="예: 우수관 매설 및 터파기 작업 진행" required>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">현장 사진 촬영/업로드</label>
+                <input class="form-control" type="file" name="file" accept="image/*" required>
+            </div>
+            <button type="submit" class="btn btn-success w-100 fw-bold py-2" id="submitBtn">
+                🚀 기상 특보 반영 및 AI 위험요소 진단 저장
+            </button>
+        </form>
+    </div>
+
+    <!-- 누적된 이력 타임라인 -->
+    <h4 class="fw-bold mb-3">📑 이 공사의 감독일지 누적 이력 ({{ project.logs|length }}건)</h4>
+    
+    {% if not project.logs %}
+        <div class="alert alert-info">아직 기록된 현장 일지가 없습니다. 위에서 첫 점검을 시작해보세요!</div>
+    {% endif %}
+
+    {% for log in project.logs|reverse %}
+    <div class="card p-4 mb-3 shadow-sm border-0 bg-white">
+        <!-- 🌟 작성일시, 당시 기상 정보 및 삭제 버튼 영역 -->
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 pb-2 border-bottom">
+            <div>
+                <span class="badge bg-secondary mb-1">작성일시: {{ log.date }}</span>
+                {% if log.weather_info %}
+                <div class="text-muted" style="font-size: 0.82rem;">
+                    <span class="fw-semibold text-dark">{{ log.weather_info }}</span>
+                </div>
+                {% endif %}
+            </div>
+            <form action="/logs/{{ log.id }}/delete" method="post" onsubmit="return confirm('정말 이 점검 기록을 삭제하시겠습니까?');" class="m-0">
+                <button type="submit" class="btn btn-outline-danger btn-sm">🗑️ 삭제</button>
+            </form>
+        </div>
+
+        <!-- 작업 키워드 표시 -->
+        <div class="mb-3">
+            <span class="fw-semibold text-secondary small">작업 내용:</span>
+            <span class="fw-bold text-dark">{{ log.work_content }}</span>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4 mb-3 mb-md-0 text-center bg-dark rounded p-2 d-flex align-items-center justify-content-center">
+                <img src="{{ log.image_path }}" class="img-fluid rounded" style="max-height: 250px; object-fit: contain;" alt="현장사진">
+            </div>
+            <div class="col-md-8">
+                <!-- 일반 뷰 모드 -->
+                <div id="view-mode-{{ log.id }}">
+                    <div class="ai-result-box small mb-2">{{ log.ai_result }}</div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleEdit({{ log.id }})">✏️ 내용 수정하기</button>
+                </div>
+                
+                <!-- 편집 모드 폼 -->
+                <form action="/logs/{{ log.id }}/update" method="post" id="edit-mode-{{ log.id }}" style="display: none;">
+                    <textarea class="form-control small mb-2" name="ai_result" rows="8" required>{{ log.ai_result }}</textarea>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm">💾 수정 완료</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEdit({{ log.id }})">취소</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<script>
+    document.getElementById('logForm').addEventListener('submit', function() {
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.innerHTML = '🔄 기상 데이터 및 AI 분석 결과를 결합하여 저장 중입니다...';
+    });
+
+    function toggleEdit(logId) {
+        const viewMode = document.getElementById(`view-mode-${logId}`);
+        const editMode = document.getElementById(`edit-mode-${logId}`);
+        if (viewMode.style.display === "none") {
+            viewMode.style.display = "block";
+            editMode.style.display = "none";
+        } else {
+            viewMode.style.display = "none";
+            editMode.style.display = "block";
+        }
+    }
+</script>
+
+<!-- 본문 영역(750px)을 기준으로 하단 고정되는 2줄 푸터 -->
+<div style="position: fixed; bottom: 0; left: 0; right: 0; max-width: 750px; margin: 0 auto; background-color: #f8f9fa; border-top: 1px solid #dee2e6; text-align: center; padding: 8px 0; font-size: 12px; color: #6c757d; z-index: 1000; box-shadow: 0 -2px 5px rgba(0,0,0,0.05); line-height: 1.4;">
+    <div><strong>Copyright © GAI (NOT GAY), 2026. 9.</strong></div>
+    <div><strong>GAI-men</strong>: Progress.K, Zero-real.CH, Tneserp.A</div>
+</div>
+<div style="height: 60px;"></div>
+</body>
+</html>
