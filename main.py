@@ -24,6 +24,7 @@ from google.genai import types
 
 # API 키 환경 변수에서 로드
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 # 1. SQLite DB 설정
 SQLALCHEMY_DATABASE_URL = "sqlite:///./inspector.db"
@@ -48,7 +49,7 @@ class Log(Base):
     image_path = Column(String)
     ai_result = Column(Text)
     weather_info = Column(String)  # 기상 정보 저장용
-    project = relationship("Project", back_populates="logs")
+    project = relationship("Log", back_populates="project") # 수정됨
 
 Base.metadata.create_all(bind=engine)
 
@@ -69,25 +70,38 @@ def get_db():
         db.close()
 
 def get_weather_info(location_name: str):
-    lat, lon = 35.2413, 129.2249  # 기본 좌표 (기장군청)
-
+    query_city = "Gijang-gun,KR" # 기본 기장군
+    
     if location_name:
         loc_lower = location_name.replace(" ", "")
         if "정관" in loc_lower:
-            lat, lon = 35.3214, 129.1767 
+            query_city = "Jeonggwan-eup,KR"
         elif "장안" in loc_lower:
-            lat, lon = 35.3331, 129.2797 
+            query_city = "Jangan-eup,KR"
         elif "일광" in loc_lower:
-            lat, lon = 35.2577, 129.2294 
+            query_city = "Ilgwang-eup,KR"
         elif "철마" in loc_lower:
-            lat, lon = 35.2819, 129.1558 
+            query_city = "Cheolma-myeon,KR"
         elif "기장" in loc_lower:
-            lat, lon = 35.2413, 129.2249 
+            query_city = "Gijang-gun,KR"
         elif "부산" in loc_lower or "해운대" in loc_lower:
-            lat, lon = 35.1796, 129.0756 
+            query_city = "Busan,KR"
 
-    # 인증키 없이 좌표만으로 안정적으로 JSON을 제공하는 wttr.in 활용
-    url = f"https://wttr.in/{lat},{lon}?format=j1"
+    if not OPENWEATHER_API_KEY:
+        return {
+            "current_text": "API 키 환경 변수 설정 필요",
+            "alert_text": "설정 누락",
+            "today": {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "status": "⚙️ 설정 필요",
+                "rain_prob": 0,
+                "temp_min": 0,
+                "temp_max": 0
+            },
+            "forecast": []
+        }
+
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={query_city}&appid={OPENWEATHER_API_KEY}&units=metric&lang=kr"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
@@ -98,89 +112,66 @@ def get_weather_info(location_name: str):
         with urllib.request.urlopen(req, timeout=7) as resp:
             data = json.loads(resp.read().decode('utf-8'))
         
-        current = data.get("current_condition", [{}])[0]
-        temp = current.get("temp_C", "20")
-        humidity = current.get("humidity", "50")
-        precip = current.get("precipMM", "0")
-        wind = current.get("windspeedKmph", "0")
+        main_data = data.get("main", {})
+        wind_data = data.get("wind", {})
+        weather_desc_list = data.get("weather", [{}])
         
-        # 풍속 km/h -> m/s 대략 환산 (3.6으로 나눔)
-        try:
-            wind_ms = round(float(wind) / 3.6, 1)
-        except:
-            wind_ms = 0.0
-
-        weather_desc = f"기온: {temp}°C | 습도: {humidity}% | 강수량: {precip}mm | 풍속: {wind_ms}m/s"
+        temp = round(main_data.get("temp", 20), 1)
+        temp_min = round(main_data.get("temp_min", temp - 3), 1)
+        temp_max = round(main_data.get("temp_max", temp + 3), 1)
+        humidity = main_data.get("humidity", 50)
+        wind_speed = wind_data.get("speed", 0.0)
         
-        weather_list = data.get("weather", [])
-        forecast_list = []
+        desc_text = weather_desc_list[0].get("description", "맑음")
+        main_status = weather_desc_list[0].get("main", "Clear").lower()
         
-        for w in weather_list:
-            date_str = w.get("date", "")
-            t_max = float(w.get("maxtempC", 25))
-            t_min = float(w.get("mintempC", 15))
-            
-            hourly = w.get("hourly", [{}])
-            desc = hourly[0].get("weatherDesc", [{}])[0].get("value", "").lower() if hourly else ""
-            
-            status = "☀️ 맑음"
-            rain_prob = 10
-            if "rain" in desc or "shower" in desc or "precipitation" in desc:
-                status = "☔ 비"
-                rain_prob = 80
-            elif "cloud" in desc or "overcast" in desc:
-                status = "☁️ 흐림"
-                rain_prob = 30
-            elif "sun" in desc or "clear" in desc:
-                status = "☀️ 맑음"
-                rain_prob = 0
+        status_icon = "☀️ 맑음"
+        rain_prob = 0
+        if "rain" in main_status or "비" in desc_text or "shower" in main_status:
+            status_icon = "☔ 비"
+            rain_prob = 80
+        elif "cloud" in main_status or "구름" in desc_text or "흐림" in desc_text:
+            status_icon = "☁️ 흐림/구름"
+            rain_prob = 30
+        elif "snow" in main_status:
+            status_icon = "❄️ 눈"
+            rain_prob = 80
 
-            forecast_list.append({
-                "date": date_str,
-                "status": status,
-                "rain_prob": rain_prob,
-                "temp_min": t_min,
-                "temp_max": t_max
-            })
-
-        today_info = forecast_list[0] if forecast_list else {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "status": "☀️ 맑음",
-            "rain_prob": 0,
-            "temp_min": float(temp),
-            "temp_max": float(temp) + 5
-        }
-        weekly_forecast = forecast_list[1:6] if len(forecast_list) > 1 else []
-
+        weather_desc = f"기온: {temp}°C | 습도: {humidity}% | 강수량: 0mm | 풍속: {wind_speed}m/s"
+        
         alerts = []
-        try:
-            if float(precip) > 0:
-                alerts.append("🚨 [우천 주의] 강우 대비 사면 보호 필요")
-            if wind_ms > 10:
-                alerts.append("🚨 [강풍 주의] 자재 결박 점검 필요")
-            if float(temp) >= 33:
-                alerts.append("🚨 [폭염 주의] 근로자 휴식 부여 필요")
-        except:
-            pass
+        if rain_prob >= 50 or "비" in desc_text:
+            alerts.append("🚨 [우천 주의] 강우 대비 사면 및 자재 보호 필요")
+        if wind_speed >= 10:
+            alerts.append("🚨 [강풍 주의] 가설물 및 자재 결박 상태 점검 필요")
+        if temp >= 33:
+            alerts.append("🚨 [폭염 주의] 현장 근로자 무더위 휴식 시간 부여 필요")
             
-        alert_text = " / ".join(alerts) if alerts else "기상 특보 없음"
+        alert_text = " / ".join(alerts) if alerts else "기상 특보 없음 (안전)"
+
+        today_info = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "status": f"{status_icon} ({desc_text})",
+            "rain_prob": rain_prob,
+            "temp_min": temp_min,
+            "temp_max": temp_max
+        }
         
         return {
             "current_text": weather_desc,
             "alert_text": alert_text,
             "today": today_info,
-            "forecast": weekly_forecast
+            "forecast": [] 
         }
         
     except Exception as e:
-        print(f"⚠️ 날씨 연동 에러: {str(e)}")
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        print(f"⚠️ OpenWeatherMap API 연동 에러: {str(e)}")
         return {
-            "current_text": "기온: 20°C | 습도: 50% | 강수량: 0mm | 풍속: 0m/s",
-            "alert_text": "기상 특보 없음",
+            "current_text": "실시간 날씨 통신 지연",
+            "alert_text": "기상 정보 확인 불가",
             "today": {
-                "date": today_str,
-                "status": "☀️ 맑음",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "status": "⚠️ 통신 에러",
                 "rain_prob": 0,
                 "temp_min": 15.0,
                 "temp_max": 25.0
