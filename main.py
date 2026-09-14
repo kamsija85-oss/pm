@@ -7,7 +7,8 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 import os
 import uuid
-import requests
+import json
+import urllib.request
 from datetime import datetime
 from fastapi import FastAPI, File, Form, Depends, UploadFile, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -21,7 +22,7 @@ from sqlalchemy.orm import sessionmaker, relationship, Session
 from google import genai
 from google.genai import types
 
-# 🌟 API 키를 코드에서 제거하고 환경 변수(Environment Variable)에서 안전하게 가져옵니다.
+# API 키 환경 변수에서 로드
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # 1. SQLite DB 설정
@@ -57,8 +58,7 @@ os.makedirs("static/uploads", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# 환경 변수에서 불러온 API 키를 사용하여 클라이언트 초기화
-# (만약 키가 설정되지 않았다면 실행 시점에 에러가 발생하므로 Render 설정 확인 필수)
+# 클라이언트 초기화
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_db():
@@ -70,7 +70,7 @@ def get_db():
 
 def get_weather_info(location_name: str):
     try:
-        lat, lon = 35.2413, 129.2249 
+        lat, lon = 35.2413, 129.2249  # 기본 좌표 (기장군청)
 
         if location_name:
             loc_lower = location_name.replace(" ", "")
@@ -84,13 +84,19 @@ def get_weather_info(location_name: str):
                 lat, lon = 35.2819, 129.1558 
             elif "기장" in loc_lower:
                 lat, lon = 35.2413, 129.2249 
-            elif "부산" in loc_lower:
+            elif "부산" in loc_lower or "해운대" in loc_lower:
                 lat, lon = 35.1796, 129.0756 
 
         url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m&daily=weathercode,precipitation_probability_max,temperature_2m_min,temperature_2m_max&timezone=Asia%2FSeoul"
         
-        response = requests.get(url, timeout=3)
-        data = response.json()
+        # 렌더 서버 환경에서 더 안정적인 urllib 표준 라이브러리 및 타임아웃 7초 적용
+        req = urllib.request.Request(
+            url, 
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        
+        with urllib.request.urlopen(req, timeout=7) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
         
         current = data.get("current", {})
         temp = current.get("temperature_2m", "정보 없음")
@@ -156,6 +162,7 @@ def get_weather_info(location_name: str):
             "forecast": weekly_forecast
         }
     except Exception as e:
+        print(f"⚠️ 날씨 조회 중 에러 발생: {str(e)}")
         return {
             "current_text": "기상 정보 조회 불가",
             "alert_text": "",
@@ -244,7 +251,7 @@ async def create_log(
         user_prompt = f"공사명: {project.name}\n위치: {project.location}\n작업키워드: {work_content}\n당일 기상정보: {current_weather}\n이 현장 사진과 기상 상황을 종합해 분석해줘."
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",  # 최신 안정 모델 권장 (필요시 수정 가능)
+            model="gemini-3.5-flash-lite",
             contents=[image_part, user_prompt],
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,

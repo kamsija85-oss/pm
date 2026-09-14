@@ -1,8 +1,8 @@
-fastapi
-uvicorn
-sqlalchemy
-jinja2
-python-multipart
-requests
-google-genai
-pydantic
+fastapi>=0.110.0
+uvicorn>=0.28.0
+sqlalchemy>=2.0.0
+jinja2>=3.1.0
+python-multipart>=0.0.9
+requests>=2.31.0
+google-genai>=1.0.0
+pydantic>=2.6.0
