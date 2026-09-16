@@ -70,42 +70,21 @@ def get_db():
         db.close()
 
 def get_weather_info(location_name: str):
-    query_city = "Gijang-gun,KR" # 기본 기장군
-        
-    if location_name:
-        loc_lower = location_name.replace(" ", "")
-        if "정관" in loc_lower:
-            query_city = "Jeonggwan-eup,KR"
-        elif "장안" in loc_lower:
-            query_city = "Jangan-eup,KR"
-        elif "일광" in loc_lower:
-            query_city = "Ilgwang-eup,KR"
-        elif "철마" in loc_lower:
-            query_city = "Cheolma-myeon,KR"
-        elif "기장" in loc_lower:
-            query_city = "Gijang-gun,KR"
-        else:
-            # 지정된 5개 지역이 아니면 부산으로 고정
-            query_city = "Busan,KR"
+    # OpenWeatherMap API는 'Busan,KR'로 고정하여 통신 에러 원천 차단
+    query_city = "Busan,KR"
 
     if not OPENWEATHER_API_KEY:
         return {
             "current_text": "API 키 환경 변수 설정 필요",
             "alert_text": "설정 누락",
-            "today": {
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "status": "⚙️ 설정 필요",
-                "rain_prob": 0,
-                "temp_min": 0,
-                "temp_max": 0
-            },
+            "today": None,
             "forecast": []
         }
 
     headers = {"User-Agent": "Mozilla/5.0"}
     
     try:
-        # 1. 현재 날씨 호출
+        # 1. 현재 날씨 호출 (부산 기준)
         current_url = f"https://api.openweathermap.org/data/2.5/weather?q={query_city}&appid={OPENWEATHER_API_KEY}&units=metric&lang=kr"
         req = urllib.request.Request(current_url, headers=headers)
         with urllib.request.urlopen(req, timeout=7) as resp:
@@ -116,8 +95,6 @@ def get_weather_info(location_name: str):
         weather_desc_list = data.get("weather", [{}])
         
         temp = round(main_data.get("temp", 20), 1)
-        temp_min = round(main_data.get("temp_min", temp - 3), 1)
-        temp_max = round(main_data.get("temp_max", temp + 3), 1)
         humidity = main_data.get("humidity", 50)
         wind_speed = wind_data.get("speed", 0.0)
         
@@ -148,17 +125,13 @@ def get_weather_info(location_name: str):
             
         alert_text = " / ".join(alerts) if alerts else "기상 특보 없음"
 
-        today_info = {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "status": f"{status_icon}",
-            "rain_prob": rain_prob,
-            "temp_min": int(temp_min),
-            "temp_max": int(temp_max)
-        }
-
-        # 2. 5일 / 3시간 예보 호출 (Forecast API)
+        # 2. 5일 / 3시간 예보 호출 (오늘 최저/최고 및 향후 5일 예보 동시 계산)
         forecast_url = f"https://api.openweathermap.org/data/2.5/forecast?q={query_city}&appid={OPENWEATHER_API_KEY}&units=metric&lang=kr"
         req_fc = urllib.request.Request(forecast_url, headers=headers)
+        
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_temps = [temp] 
+        today_pops = [rain_prob]
         
         forecast_list = []
         with urllib.request.urlopen(req_fc, timeout=7) as resp_fc:
@@ -166,11 +139,14 @@ def get_weather_info(location_name: str):
             
             daily_data = {}
             for item in fc_data.get("list", []):
-                dt_txt = item.get("dt_txt", "") # 예: "2026-06-07 15:00:00"
+                dt_txt = item.get("dt_txt", "") 
                 date_str = dt_txt.split(" ")[0]
+                item_temp = item.get("main", {}).get("temp", 20)
+                item_pop = int(item.get("pop", 0) * 100)
                 
-                # 오늘 날짜는 제외하고 내일부터 5일간 수집
-                if date_str == datetime.now().strftime("%Y-%m-%d"):
+                if date_str == today_str:
+                    today_temps.append(item_temp)
+                    today_pops.append(item_pop)
                     continue
                 
                 if date_str not in daily_data:
@@ -180,20 +156,30 @@ def get_weather_info(location_name: str):
                         "descriptions": []
                     }
                 
-                daily_data[date_str]["temps"].append(item.get("main", {}).get("temp", 20))
-                daily_data[date_str]["pops"].append(int(item.get("pop", 0) * 100))
+                daily_data[date_str]["temps"].append(item_temp)
+                daily_data[date_str]["pops"].append(item_pop)
                 
                 w_desc = item.get("weather", [{}])[0].get("description", "맑음")
                 daily_data[date_str]["descriptions"].append(w_desc)
 
-            # 날짜별로 정리해서 최대 5개 추출
+            today_min = int(min(today_temps))
+            today_max = int(max(today_temps))
+            today_avg_pop = int(sum(today_pops) / len(today_pops)) if today_pops else rain_prob
+
+            today_info = {
+                "date": today_str,
+                "status": f"{status_icon}",
+                "rain_prob": today_avg_pop,
+                "temp_min": today_min,
+                "temp_max": today_max
+            }
+
             for d_str, val in list(daily_data.items())[:5]:
                 min_t = int(min(val["temps"]))
                 max_t = int(max(val["temps"]))
                 avg_pop = int(sum(val["pops"]) / len(val["pops"])) if val["pops"] else 0
                 
-                # 대표 날씨 아이콘 결정
-                main_d = val["descriptions"][0]
+                main_d = val["descriptions"][0] if val["descriptions"] else "맑음"
                 icon = "☁️ 구름"
                 if "비" in main_d or "소나기" in main_d:
                     icon = "☔ 비"
@@ -202,7 +188,6 @@ def get_weather_info(location_name: str):
                 elif "눈" in main_d:
                     icon = "❄️ 눈"
 
-                # 월-일 형태로 포맷 (예: "09-14")
                 try:
                     parsed_date = datetime.strptime(d_str, "%Y-%m-%d")
                     formatted_date = parsed_date.strftime("%m-%d")
@@ -226,16 +211,11 @@ def get_weather_info(location_name: str):
         
     except Exception as e:
         print(f"⚠️ OpenWeatherMap API 연동 에러 ({location_name}): {str(e)}")
+        # 통신 에러 발생 시 가짜 기온(15~25도 등)을 반환하지 않고 에러 상태만 전달
         return {
             "current_text": "실시간 날씨 통신 지연",
             "alert_text": "기상 정보 확인 불가",
-            "today": {
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "status": "⚠️ 통신 에러",
-                "rain_prob": 0,
-                "temp_min": 15,
-                "temp_max": 25
-            },
+            "today": None,
             "forecast": []
         }
         
