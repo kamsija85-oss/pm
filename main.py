@@ -49,7 +49,7 @@ class Log(Base):
     image_path = Column(String)
     ai_result = Column(Text)
     weather_info = Column(String)  # 기상 정보 저장용
-    project = relationship("Log", back_populates="project") # 수정됨
+    project = relationship("Project", back_populates="logs") # ⭕ 올바르게 수정된 부분
 
 Base.metadata.create_all(bind=engine)
 
